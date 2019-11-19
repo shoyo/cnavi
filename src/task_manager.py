@@ -9,6 +9,7 @@ class TaskManager:
         """Pull files from CourseNavi."""
         cni = CourseNaviInterface()
 
+        # Refactor redirect params passing
         dashboard = cni.login()
         courses = cni.get_courses(dashboard)
 

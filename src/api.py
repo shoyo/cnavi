@@ -12,42 +12,55 @@ class CourseNaviInterface:
         self.password = os.environ['CNAVI_PASSWORD']
         self.base_url = 'https://cnavi.waseda.jp/index.php'
         self.session = requests.Session()
-        self.verify = True
+        self.cache = {}
+
+        # --- TEMP for proxying traffic from requests
+        self.session.proxies = {
+            'http': 'socks5://localhost:8080',
+            'https': 'socks5://localhost:8080',
+        }
+        self.verify = False
+        # ----
 
         self.headers = {
-            'accept':          'text/html,application/xhtml+xml,'
+            'Accept':          'text/html,application/xhtml+xml,'
                                    + 'application/xml;q=0.9,'
                                    + 'image/webp,image/apng,*/*;'
                                    + 'q=0.8,application/signed-exchange;v=b3',
-            'accept-encoding': 'gzip, deflate, br',
-            'accept-language': 'en-US,en;q=0.9',
-            'cache-control':   'max-age=0',
-            'content-type':    'application/x-www-form-urlencoded',
-            'sec-fetch-site':  'same-origin',
-            'sec-fetch-mode':  'navigate',
-            'user-agent':      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_6) '
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Cache-Control':   'max-age=0',
+            'Content-Type':    'application/x-www-form-urlencoded',
+            'Origin':          'https://cnavi.waseda.jp',
+            'Referer':         self.base_url,
+            'Sec-Fetch-Site':  'same-origin',
+            'Sec-Fetch-Mode':  'navigate',
+            'User-Agent':      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_6) '
                                    + 'AppleWebKit/537.36 (KHTML, like Gecko) '
                                    + 'Chrome/78.0.3904.97 '
                                    + 'Safari/537.36',
 
-            'upgrade-insecure-requests': '1',
+            'Upgrade-Insecure-Requests': '1',
         }
-
     
     def login(self):
         dummy = self._login()
         return self._login_redirect(dummy)
 
+    def select_course(self, course, dashboard):
+        """Simulate clicking a given course on the dashboard.
 
-    def course_detail(self, dashboard, course):
-        dummy, params = self._course_detail(dashboard, course)
-        return self._course_detail_redirect(dummy, params)
+        course -- Soupified HTML of a single course row
+        """
+        course_data = course.find('p', 'w-col6')
+        dummy = self._course_detail(course_data, dashboard)
+        course_detail = self._course_detail_redirect(dummy)
 
+        # lectures = course_detail.find('ul', re.compile('^folder_open*'))
 
     def get_title(self, course):
         """Return the title of a course as a string."""
         return course.find('p', 'w-col1').find('a').text.strip()
-
 
     def get_courses(self, dashboard):
         """Return a list of HTML row elements containing courses in dashboard.
@@ -55,22 +68,9 @@ class CourseNaviInterface:
         Typically used on the return value of `self.login()` to extract
         relevant course data.
         """
-        return dashboard.find_all('div', 'w-conbox')
-
-
-    def select_course(self, course, dashboard):
-        """Simulate clicking a given course on the dashboard.
-
-        course -- Soupified HTML of a given course row from `self.get_courses()`
-        """
-        course_data = course.find('p', 'w-col6') # Find hidden form fields
-        dummy, params = self._course_detail(course_data, dashboard)
-        course_detail = self._course_detail_redirect(dummy, params)
-
-        return course_detail.prettify()
-
-        # lectures = course_detail.find('ul', re.compile('^folder_open*'))
-
+        rows = dashboard.find_all('div', 'w-conbox')
+        date = lambda row: row.find('p', 'w-col4').text
+        return [row for row in rows if self._is_valid_date(date(row))]
 
     def _login(self):
         if not self.email or not self.password:
@@ -113,8 +113,6 @@ class CourseNaviInterface:
 
         return self._post(self.base_url, params, 'url-encoded')
 
-
- 
     def _login_redirect(self, dummy):
         params = {}
         fields = [
@@ -136,11 +134,19 @@ class CourseNaviInterface:
         ]
         for field in fields:
             params[field] = self._find_value_by_name(dummy, field)
-        
+
+        self.cache['ControllerParameters'] = params['ControllerParameters']
+
         return self._post(self.base_url, params, 'url-encoded')
 
-
     def _course_detail(self, course_data, dashboard):
+        """
+        Missing fields:
+        - ControllerParameters -> pull from login params?
+        - hidFolderId -> same as folder_id[]?
+        - hidCommunityId -> same as communityIdInfo[]?
+        - hidNewWindowFlg -> just set to 1?
+        """
         params = {}
         general_fields = [
             'hidCurrentViewID',
@@ -212,16 +218,18 @@ class CourseNaviInterface:
         for field in general_fields:
             params[field] = self._find_value_by_name(dashboard, field)
         for field in specific_fields:
-            try:
-                params[field] = self._find_value_by_name(course_data, field)
-            except NoElementError:
-                # `communityIdInfo[]` sometimes returns as empty string name
-                params[field] = self._find_value_by_name(course_data, '')
+            params[field] = self._find_value_by_name(course_data, field)
+            self.cache[field] = params[field]
 
-        return self._post(self.base_url, params, 'multipart-form'), params
+        # Ad hoc headers
+        params['ControllerParameters'] = self.cache['ControllerParameters']
+        params['hidFolderId'] = params['folder_id[]']
+        params['hidCommunityId'] = params['communityIdInfo[]']
+        params['hidNewWindowFlg'] = '1'
 
+        return self._post(self.base_url, params, 'multipart-form')
 
-    def _course_detail_redirect(self, dummy, init_params):
+    def _course_detail_redirect(self, dummy):
         """Handle redirect after POSTing to base_url for course detail.
 
         Course detail dummy contains every possible value for each field in
@@ -254,10 +262,17 @@ class CourseNaviInterface:
         for field in general_fields:
             params[field] = self._find_value_by_name(dummy, field)
         for field in specific_fields:
-            params[field] = init_params[field]
+            params[field] = self.cache[field]
 
         return self._post(self.base_url, params, 'url-encoded')
 
+    def _is_valid_date(self, string):
+        ids = ['月', '火', '水', '木', '金', '土',
+               'Mon', 'Tues', 'Wed', 'Thur', 'Fri', 'Sat']
+        for id in ids:
+            if string.startswith(id):
+                return True
+        return False
 
     def _find_value_by_name(self, html, name):
         element = html.find(attrs={'name': name})
@@ -265,24 +280,22 @@ class CourseNaviInterface:
             raise NoElementError(f'No element found for "name={name}"')
         return element['value']
 
-
     def _get(self, url):
         response = self.session.get(url,
                                     headers=self.headers,
                                     verify=self.verify)
         return self._soupify(response.text)
 
-
     def _post(self, url, params, content_type):
         if content_type == 'url-encoded':
-            self.headers['content-type'] = 'application/x-www-form-urlencoded'
+            self.headers['Content-Type'] = 'application/x-www-form-urlencoded'
             response = self.session.post(url,
                                          data=params,
                                          headers=self.headers,
                                          verify=self.verify)
         elif content_type == 'multipart-form':
             multipart = MultipartEncoder(fields=params)
-            self.headers['content-type'] = multipart.content_type
+            self.headers['Content-Type'] = multipart.content_type
             response = self.session.post(url,
                                          data=multipart,
                                          headers=self.headers,
@@ -292,9 +305,8 @@ class CourseNaviInterface:
 
         return self._soupify(response.text)
 
-
     def _soupify(self, html):
-        return BeautifulSoup(html, 'html.parser')
+        return BeautifulSoup(html, 'html5lib')
 
 
 # ---- Custom Errors ----
