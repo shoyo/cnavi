@@ -4,28 +4,14 @@ from bs4 import BeautifulSoup
 import requests
 
 
-class NoCredentialsError(Exception):
-    def __init__(self, message):
-        super().__init__(message)
-
-
-class ConfigError(Exception):
-    def __init__(self, message):
-        super().__init__(message)
-
-
-class NoElementError(Exception):
-    def __init__(self, message):
-        super().__init__(message)
-
-
 class CourseNaviInterface:
     def __init__(self):
         # TODO: add config file manipulation (raise error instead of processing)
-        self.email = 'shoyo@toki.waseda.jp'
+        self.email = os.environ['CNAVI_ID']
         self.password = os.environ['CNAVI_PASSWORD']
         self.base_url = 'https://cnavi.waseda.jp/index.php'
         self.session = requests.Session()
+        self.verify = True
         self.headers = {
             'accept':          'text/html,application/xhtml+xml,'
                                    + 'application/xml;q=0.9,'
@@ -48,13 +34,17 @@ class CourseNaviInterface:
     
     def login(self):
         dummy = self._login()
-        print(dummy)
         return self._login_redirect(dummy)
 
 
     def course_detail(self, dashboard, course):
         dummy, params = self._course_detail(dashboard, course)
         return self._course_detail_redirect(dummy, params)
+
+
+    def get_title(self, course):
+        """Return the title of a course as a string."""
+        return course.find('p', 'w-col1').find('a').text.strip()
 
 
     def get_courses(self, dashboard):
@@ -66,8 +56,16 @@ class CourseNaviInterface:
         return dashboard.find_all('div', 'w-conbox')
 
 
-    def get_lectures(self, course_detail):
-        pass
+    def select_course(self, course, dashboard):
+        """Simulate clicking a given course on the dashboard.
+
+        course -- Soupified HTML of a given course row from `self.get_courses()`
+        """
+        course_data = course.find('p', 'w-col6') # Find hidden form fields
+        dummy, params = self._course_detail(course_data, dashboard)
+        course_detail = self._course_detail_redirect(dummy, params)
+
+        # lectures = course_detail.find('ul', re.compile('^folder_open*'))
 
 
     def _login(self):
@@ -109,7 +107,7 @@ class CourseNaviInterface:
         for field in other_fields:
             params[field] = self._find_value_by_name(login_html, field)
 
-        return self._post(self.base_url, params)
+        return self._post(self.base_url, params, 'url-encoded')
 
 
  
@@ -135,10 +133,10 @@ class CourseNaviInterface:
         for field in fields:
             params[field] = self._find_value_by_name(dummy, field)
         
-        return self._post(self.base_url, params)
+        return self._post(self.base_url, params, 'url-encoded')
 
 
-    def _course_detail(self, dashboard, course_row):
+    def _course_detail(self, course_data, dashboard):
         params = {}
         general_fields = [
             'hidCurrentViewID',
@@ -212,16 +210,45 @@ class CourseNaviInterface:
         for field in specific_fields:
             params[field] = self._find_value_by_name(course_row, field)
 
-        return self._post(self.base_url, params), params
+        return self._post(self.base_url, params, 'multipart-form'), params
 
 
     def _course_detail_redirect(self, dummy, init_params):
-        params = {}
-        fields = [
+        """Handle redirect after POSTing to base_url for course detail.
 
+        Course detail dummy contains every possible value for each field in
+        `specific_fields`. For these fields, the initial params that were posted
+        for course_detail are used to prevent parser error.
+        """
+        params = {}
+        general_fields = [
+            'ControllerParameters',
+            'hidCommunityId',
+            'hidCommKcd',
+            'hidCommBcd',
+            'hidFolderId',
+            'hidContentsId',
+            'hidListMode',
+            'hidEditButton',
+            'hidInputFuncType',
+            'hidsocial_no',
+            'hidDesignInfo',
+            'simpletype',
+            'SessionIdEncodeKey',
+            'hidAdmission',
         ]
-        for field in fields:
+        specific_fields = [
+            'community_name[]',
+            'communityIdInfo[]',
+            'folder_id[]',
+        ]
+
+        for field in general_fields:
             params[field] = self._find_value_by_name(dummy, field)
+        for field in specific_fields:
+            params[field] = init_params[field]
+
+        return self._post(self.base_url, params, 'url-encoded')
 
 
     def _find_value_by_name(self, html, name):
@@ -232,15 +259,49 @@ class CourseNaviInterface:
 
 
     def _get(self, url):
-        response = self.session.get(url, headers=self.headers)
+        response = self.session.get(url,
+                                    headers=self.headers,
+                                    verify=self.verify)
         return self._soupify(response.text)
 
 
-    def _post(self, url, params):
-        response = self.session.post(url, params=params, headers=self.headers)
+    def _post(self, url, params, content_type):
+        if content_type == 'url-encoded':
+            self.headers['content-type'] = 'application/x-www-form-urlencoded'
+        elif content_type == 'multipart-form':
+            self.headers['content-type'] = 'multipart/form-data;'
+        else:
+            raise InvalidContentTypeError(f'Cannot set header to {content_type}')
+
+        response = self.session.post(url,
+                                     data=params,
+                                     headers=self.headers,
+                                     verify=self.verify)
         return self._soupify(response.text)
 
 
     def _soupify(self, html):
         return BeautifulSoup(html, 'html.parser')
+
+
+# ---- Custom Errors ----
+
+class NoCredentialsError(Exception):
+    def __init__(self, message):
+        super().__init__(message)
+
+
+class ConfigError(Exception):
+    def __init__(self, message):
+        super().__init__(message)
+
+
+class NoElementError(Exception):
+    def __init__(self, message):
+        super().__init__(message)
+
+
+class InvalidContentTypeError(Exception):
+    def __init__(self, message):
+        super().__init__(message)
 
