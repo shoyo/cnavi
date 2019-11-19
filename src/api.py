@@ -14,6 +14,11 @@ class ConfigError(Exception):
         super().__init__(message)
 
 
+class NoElementError(Exception):
+    def __init__(self, message):
+        super().__init__(message)
+
+
 class CourseNaviInterface:
     def __init__(self):
         # TODO: add config file manipulation (raise error instead of processing)
@@ -43,6 +48,7 @@ class CourseNaviInterface:
     
     def login(self):
         dummy = self._login()
+        print(dummy)
         return self._login_redirect(dummy)
 
 
@@ -101,7 +107,7 @@ class CourseNaviInterface:
         ]
 
         for field in other_fields:
-            params[field] = login_html.find(attrs={'name': field})['value']
+            params[field] = self._find_value_by_name(login_html, field)
 
         return self._post(self.base_url, params)
 
@@ -127,7 +133,7 @@ class CourseNaviInterface:
             'hidAdmission',
         ]
         for field in fields:
-            params[field] = dummy.find(attrs={'name': field})['value']
+            params[field] = self._find_value_by_name(dummy, field)
         
         return self._post(self.base_url, params)
 
@@ -202,13 +208,9 @@ class CourseNaviInterface:
         ]
 
         for field in general_fields:
-            params[field] = dashboard.find(attrs={'name': field})['value']
+            params[field] = self._find_value_by_name(dashboard, field)
         for field in specific_fields:
-            try:
-                params[field] = course_row.find(attrs={'name': field})['value']
-            except TypeError:
-                # `communityIdInfo[]` sometimes returns as empty string name
-                params[field] = course_row.find(attrs={'name': ''})['value']
+            params[field] = self._find_value_by_name(course_row, field)
 
         return self._post(self.base_url, params), params
 
@@ -219,13 +221,14 @@ class CourseNaviInterface:
 
         ]
         for field in fields:
-            if field == 'communityIdInfo[]':
-                try:
-                    params[field] = dummy.find(attrs={'name': field})['value']
-                except TypeError:
-                    # `communityIdInfo[]` sometimes returns as empty string name
-                    params[field] = course_row.find(attrs={'name': ''})['value']
-            params[field] = dummy.find(attrs={'name': field})['value']
+            params[field] = self._find_value_by_name(dummy, field)
+
+
+    def _find_value_by_name(self, html, name):
+        element = html.find(attrs={'name': name})
+        if element is None:
+            raise NoElementError(f'No element found for "name={name}"')
+        return element['value']
 
 
     def _get(self, url):
