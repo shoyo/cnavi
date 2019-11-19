@@ -2,6 +2,7 @@ import os
 
 from bs4 import BeautifulSoup
 import requests
+from requests_toolbelt import MultipartEncoder
 
 
 class CourseNaviInterface:
@@ -12,6 +13,7 @@ class CourseNaviInterface:
         self.base_url = 'https://cnavi.waseda.jp/index.php'
         self.session = requests.Session()
         self.verify = True
+
         self.headers = {
             'accept':          'text/html,application/xhtml+xml,'
                                    + 'application/xml;q=0.9,'
@@ -64,6 +66,8 @@ class CourseNaviInterface:
         course_data = course.find('p', 'w-col6') # Find hidden form fields
         dummy, params = self._course_detail(course_data, dashboard)
         course_detail = self._course_detail_redirect(dummy, params)
+
+        return course_detail.prettify()
 
         # lectures = course_detail.find('ul', re.compile('^folder_open*'))
 
@@ -208,7 +212,11 @@ class CourseNaviInterface:
         for field in general_fields:
             params[field] = self._find_value_by_name(dashboard, field)
         for field in specific_fields:
-            params[field] = self._find_value_by_name(course_row, field)
+            try:
+                params[field] = self._find_value_by_name(course_data, field)
+            except NoElementError:
+                # `communityIdInfo[]` sometimes returns as empty string name
+                params[field] = self._find_value_by_name(course_data, '')
 
         return self._post(self.base_url, params, 'multipart-form'), params
 
@@ -268,15 +276,20 @@ class CourseNaviInterface:
     def _post(self, url, params, content_type):
         if content_type == 'url-encoded':
             self.headers['content-type'] = 'application/x-www-form-urlencoded'
+            response = self.session.post(url,
+                                         data=params,
+                                         headers=self.headers,
+                                         verify=self.verify)
         elif content_type == 'multipart-form':
-            self.headers['content-type'] = 'multipart/form-data;'
+            multipart = MultipartEncoder(fields=params)
+            self.headers['content-type'] = multipart.content_type
+            response = self.session.post(url,
+                                         data=multipart,
+                                         headers=self.headers,
+                                         verify=self.verify)
         else:
             raise InvalidContentTypeError(f'Cannot set header to {content_type}')
 
-        response = self.session.post(url,
-                                     data=params,
-                                     headers=self.headers,
-                                     verify=self.verify)
         return self._soupify(response.text)
 
 
