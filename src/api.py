@@ -52,7 +52,10 @@ class CourseNaviInterface:
 
         course -- Soupified HTML of a single course row
         """
-        course_data = course.find('p', 'w-col6')
+        hidden_fields = course.find('p', 'w-col6')
+        ad_hoc_fields = course.find('p', 'w-col1')
+        course_data = (hidden_fields, ad_hoc_fields)
+
         dummy = self._course_detail(course_data, dashboard)
         course_detail = self._course_detail_redirect(dummy)
 
@@ -135,17 +138,36 @@ class CourseNaviInterface:
         for field in fields:
             params[field] = self._find_value_by_name(dummy, field)
 
-        self.cache['ControllerParameters'] = params['ControllerParameters']
-
         return self._post(self.base_url, params, 'url-encoded')
 
     def _course_detail(self, course_data, dashboard):
         """
-        Missing fields:
-        - ControllerParameters -> pull from login params?
-        - hidFolderId -> same as folder_id[]?
-        - hidCommunityId -> same as communityIdInfo[]?
-        - hidNewWindowFlg -> just set to 1?
+        Return the dummy response from POSTing for a course in the dashboard.
+
+        Arguments
+        ---------
+        course_data -- a tuple of: (<hidden fields>, <ad hoc fields>)
+                       Hidden fields is a soupified <p> tag containing
+                         hidden input fields needed for POST
+                       Ad hoc fields is a soupified <p> tag containing
+                         an onclick function with parameters needed for POST
+        dashboard   -- a soupified HTML of the entire dashboard containing
+                         general input fields
+
+
+        Illustration of `ad hoc fields`
+        -------------------------------
+        Contains a function:
+          post_submit_edit('<ControllerParameters>',
+                           '<hidFolderId>',
+                           '',
+                           'list',
+                           '<hidCommunityId>')
+          Ad hoc fields:
+          * ControllerParameters -> pull from above
+          * hidFolderId -> pull from above
+          * hidCommunityId -> pull from above
+          * hidNewWindowFlg -> just set to 1
         """
         params = {}
         general_fields = [
@@ -218,11 +240,13 @@ class CourseNaviInterface:
         for field in general_fields:
             params[field] = self._find_value_by_name(dashboard, field)
         for field in specific_fields:
-            params[field] = self._find_value_by_name(course_data, field)
+            params[field] = self._find_value_by_name(course_data[0], field)
             self.cache[field] = params[field]
 
+        ad_hoc_fields = self._parse_ad_hoc(course_data[1])
+
         # Ad hoc headers
-        params['ControllerParameters'] = self.cache['ControllerParameters']
+        params['ControllerParameters'] = 'ZX143SubCon'
         params['hidFolderId'] = params['folder_id[]']
         params['hidCommunityId'] = params['communityIdInfo[]']
         params['hidNewWindowFlg'] = '1'
@@ -274,6 +298,25 @@ class CourseNaviInterface:
                 return True
         return False
 
+    def _parse_ad_hoc(self, html):
+        """Parse ad hoc fields from html for `self.course_detail()`.
+
+        Argument
+        --------
+        html -- typically looks like:
+                <p class="w-col1">
+                  <span>...</span>
+                  <a href="#" onclick="post_submit_edit(...); return False;">
+                    ...
+                  </a>
+                </p>
+
+        Purpose of this method is to extract the parameters of the onclick
+        function above.
+        """
+        func = html.find('a')['onclick']
+        print(func)
+
     def _find_value_by_name(self, html, name):
         element = html.find(attrs={'name': name})
         if element is None:
@@ -281,12 +324,14 @@ class CourseNaviInterface:
         return element['value']
 
     def _get(self, url):
+        """Make a GET request and return a soupified response."""
         response = self.session.get(url,
                                     headers=self.headers,
                                     verify=self.verify)
         return self._soupify(response.text)
 
     def _post(self, url, params, content_type):
+        """Make a POST request and return a soupified response."""
         if content_type == 'url-encoded':
             self.headers['Content-Type'] = 'application/x-www-form-urlencoded'
             response = self.session.post(url,
