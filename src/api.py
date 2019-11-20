@@ -49,7 +49,9 @@ class CourseNaviInterface:
     def login(self):
         """Login to the dashboard."""
         dummy = self._login()
-        return self._login_redirect(dummy)
+        dashboard = self._login_redirect(dummy)
+
+        return dashboard
 
     def select_course(self, course, dashboard):
         """Select a course in the dashboard.
@@ -69,7 +71,7 @@ class CourseNaviInterface:
     def get_courses(self, dashboard):
         """Return a list of tuples of courses' titles and respective HTML.
 
-        Typically used on the return value of `self.login()` to extract
+        Intended to be called on the return value of `self.login()` to extract
         relevant course data.
 
         dashboard -- Soupified HTML of entire dashboard
@@ -84,7 +86,7 @@ class CourseNaviInterface:
     def get_lectures(self, course_detail):
         """Return a list of tuples of lectures' titles and respective HTML.
 
-        Typically used on the return value of `self.select_course()` to extract
+        Intended to be called on the return value of `self.select_course()` to extract
         relevant lecture data.
 
         course_detail -- Soupified HTML of entire course detail
@@ -207,7 +209,7 @@ class CourseNaviInterface:
           * ControllerParameters -> pull from above
           * hidFolderId -> pull from above
           * hidCommunityId -> pull from above
-          * hidNewWindowFlg -> just set to 1
+          * hidNewWindowFlg -> set to 1
         """
         params = {}
         general_fields = [
@@ -298,9 +300,9 @@ class CourseNaviInterface:
         dummy -- Soupified HTML of initial response after POSTing for course
                  detail
 
-        Dummy contains a value for every field in `specific_fields`.
-        For these fields, the values that were intially posted to course_detail
-        and stored in self.cache are used to prevent parser error.
+        Dummy contains a value for every field in `general_fields`.
+        For fields in `specific_fields`, the values that were intially posted to
+        course_detail and stored in self.cache are reused to prevent parser error.
         """
         params = {}
         general_fields = [
@@ -333,7 +335,7 @@ class CourseNaviInterface:
         return self._post(self.base_url, params, 'url-encoded')
 
     def _is_valid_date(self, string):
-        """Return True if string is a valid date format. False otherwise."""
+        """Return True if string has a valid date format. False otherwise."""
         ids = ['月', '火', '水', '木', '金', '土',
                'Mon', 'Tues', 'Wed', 'Thur', 'Fri', 'Sat']
         for id in ids:
@@ -376,7 +378,7 @@ class CourseNaviInterface:
         to an HTML tag's <value=""> attribute.
 
         html -- Soupified HTML
-        name -- queried name value
+        name -- queried name
         """
         element = html.find(attrs={'name': name})
         if element is None:
