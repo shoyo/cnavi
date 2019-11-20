@@ -1,5 +1,7 @@
 bs4==0.0.1
+Click==7.0
 html5lib==1.0.1
+keyring==19.2.0
 PySocks==1.7.1
 requests==2.22.0
 requests-toolbelt==0.9.1

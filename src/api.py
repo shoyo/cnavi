@@ -2,13 +2,14 @@ import os
 import re
 
 from bs4 import BeautifulSoup
+import keyring
 import requests
 from requests_toolbelt import MultipartEncoder
 
 
 class CourseNaviInterface:
     def __init__(self):
-        # TODO: add config file manipulation (raise error instead of processing)
+        # TODO: retrieve email and password from keyring
         self.email = os.environ['CNAVI_ID']
         self.password = os.environ['CNAVI_PASSWORD']
         self.base_url = 'https://cnavi.waseda.jp/index.php'

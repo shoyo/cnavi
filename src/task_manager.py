@@ -5,7 +5,7 @@ class TaskManager:
     def __init__(self):
         pass
 
-    def pull(self):
+    def pull(self, all=False, verbose=False, debug=False):
         """Pull files from CourseNavi."""
         cni = CourseNaviInterface()
 
