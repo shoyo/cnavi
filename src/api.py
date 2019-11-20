@@ -15,13 +15,14 @@ class CourseNaviInterface:
         self.session = requests.Session()
         self.cache = {}
 
-        # --- TEMP for proxying traffic from requests
-        self.session.proxies = {
-            'http': 'socks5://localhost:8080',
-            'https': 'socks5://localhost:8080',
-        }
-        self.verify = False
-        # ----
+        self.verify = True
+#        # --- TEMP for proxying traffic from requests
+#        self.session.proxies = {
+#            'http': 'socks5://localhost:8080',
+#            'https': 'socks5://localhost:8080',
+#        }
+#        self.verify = False
+#        # ----
 
         self.headers = {
             'Accept':          'text/html,application/xhtml+xml,'
@@ -50,40 +51,65 @@ class CourseNaviInterface:
         return self._login_redirect(dummy)
 
     def select_course(self, course, dashboard):
-        """Click on a given course in the dashboard.
+        """Select a course in the dashboard.
 
         course    -- Soupified HTML of a single course row
         dashboard -- Soupified HTML of entire dashboard
         """
-        hidden_fields = course.find('p', 'w-col6')
-        ad_hoc_fields = course.find('p', 'w-col1')
+        hidden_fields = course.find(attrs={'class': 'w-col6'})
+        ad_hoc_fields = course.find(attrs={'class': 'w-col1'})
         course_data = (hidden_fields, ad_hoc_fields)
 
         dummy = self._course_detail(course_data, dashboard)
         course_detail = self._course_detail_redirect(dummy)
 
-        print(course_detail.prettify())
-
-        # lectures = course_detail.find('ul', re.compile('^folder_open*'))
-
-    def get_title(self, course):
-        """Return the title of a course as a string.
-
-        course -- Soupified HTML of a single course row
-        """
-        return course.find('p', 'w-col1').find('a').text.strip()
+        return course_detail
 
     def get_courses(self, dashboard):
-        """Return a list of HTML elements containing courses in the dashboard.
+        """Return a list of tuples of courses' titles and respective HTML.
 
         Typically used on the return value of `self.login()` to extract
         relevant course data.
 
         dashboard -- Soupified HTML of entire dashboard
         """
-        rows = dashboard.find_all('div', 'w-conbox')
-        date = lambda row: row.find('p', 'w-col4').text
-        return [row for row in rows if self._is_valid_date(date(row))]
+        rows = dashboard.find_all(attrs={'class': 'w-conbox'})
+        date_of = lambda row: row.find(attrs={'class': 'w-col4'}).text
+        is_course = lambda row: self._is_valid_date(date_of(row))
+        return [(self._get_course_title(row), row)
+                for row in rows
+                if is_course(row)]
+
+    def get_lectures(self, course_detail):
+        """Return a list of tuples of lectures' titles and respective HTML.
+
+        Typically used on the return value of `self.select_course()` to extract
+        relevant lecture data.
+
+        course_detail -- Soupified HTML of entire course detail
+        """
+        rows = course_detail.find_all(attrs={'class': 'c-mblock'})
+        titles = [self._get_lecture_title(row) for row in rows]
+        is_lecture_title = lambda title: title != 'お知らせ'
+        lectures = [(title, row)
+                    for (title, row) in zip(titles, rows)
+                    if is_lecture_title(title)]
+
+        return lectures
+
+    def _get_course_title(self, course):
+        """Return the title of a course as a string.
+
+        course -- Soupified HTML of a single course row
+        """
+        return course.find(attrs={'class': 'w-col1'}).find('a').text.strip()
+
+    def _get_lecture_title(self, lecture):
+        """Return the title of a lecture as a string.
+
+        course -- Soupified HTML of a single lecture row
+        """
+        return lecture.find(attrs={'class': 'ta1col-left'})['title'].strip()
 
     def _login(self):
         """POST login form and return the dummy response."""
