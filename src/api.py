@@ -1,4 +1,5 @@
 import os
+import re
 
 from bs4 import BeautifulSoup
 import requests
@@ -44,13 +45,15 @@ class CourseNaviInterface:
         }
     
     def login(self):
+        """Login to the dashboard."""
         dummy = self._login()
         return self._login_redirect(dummy)
 
     def select_course(self, course, dashboard):
-        """Simulate clicking a given course on the dashboard.
+        """Click on a given course in the dashboard.
 
-        course -- Soupified HTML of a single course row
+        course    -- Soupified HTML of a single course row
+        dashboard -- Soupified HTML of entire dashboard
         """
         hidden_fields = course.find('p', 'w-col6')
         ad_hoc_fields = course.find('p', 'w-col1')
@@ -59,23 +62,31 @@ class CourseNaviInterface:
         dummy = self._course_detail(course_data, dashboard)
         course_detail = self._course_detail_redirect(dummy)
 
+        print(course_detail.prettify())
+
         # lectures = course_detail.find('ul', re.compile('^folder_open*'))
 
     def get_title(self, course):
-        """Return the title of a course as a string."""
+        """Return the title of a course as a string.
+
+        course -- Soupified HTML of a single course row
+        """
         return course.find('p', 'w-col1').find('a').text.strip()
 
     def get_courses(self, dashboard):
-        """Return a list of HTML row elements containing courses in dashboard.
+        """Return a list of HTML elements containing courses in the dashboard.
 
         Typically used on the return value of `self.login()` to extract
         relevant course data.
+
+        dashboard -- Soupified HTML of entire dashboard
         """
         rows = dashboard.find_all('div', 'w-conbox')
         date = lambda row: row.find('p', 'w-col4').text
         return [row for row in rows if self._is_valid_date(date(row))]
 
     def _login(self):
+        """POST login form and return the dummy response."""
         if not self.email or not self.password:
             raise NoCredentialsError('No email or password found.')
 
@@ -117,6 +128,10 @@ class CourseNaviInterface:
         return self._post(self.base_url, params, 'url-encoded')
 
     def _login_redirect(self, dummy):
+        """Handle redirect after POSTing for login.
+
+        dummy -- Soupified HTML of initial response after POSTing for login
+        """
         params = {}
         fields = [
             'ControllerParameters',
@@ -135,17 +150,15 @@ class CourseNaviInterface:
             'hidLogin_flg',
             'hidAdmission',
         ]
+
         for field in fields:
             params[field] = self._find_value_by_name(dummy, field)
 
         return self._post(self.base_url, params, 'url-encoded')
 
     def _course_detail(self, course_data, dashboard):
-        """
-        Return the dummy response from POSTing for a course in the dashboard.
+        """POST for course detail on dashboard and return the dummy response.
 
-        Arguments
-        ---------
         course_data -- a tuple of: (<hidden fields>, <ad hoc fields>)
                        Hidden fields is a soupified <p> tag containing
                          hidden input fields needed for POST
@@ -243,22 +256,24 @@ class CourseNaviInterface:
             params[field] = self._find_value_by_name(course_data[0], field)
             self.cache[field] = params[field]
 
-        ad_hoc_fields = self._parse_ad_hoc(course_data[1])
-
         # Ad hoc headers
-        params['ControllerParameters'] = 'ZX143SubCon'
-        params['hidFolderId'] = params['folder_id[]']
-        params['hidCommunityId'] = params['communityIdInfo[]']
+        ad_hoc_fields = self._parse_ad_hoc(course_data[1])
+        params['ControllerParameters'] = ad_hoc_fields['ControllerParameters']
+        params['hidFolderId'] = ad_hoc_fields['hidFolderId']
+        params['hidCommunityId'] = ad_hoc_fields['hidCommunityId']
         params['hidNewWindowFlg'] = '1'
 
         return self._post(self.base_url, params, 'multipart-form')
 
     def _course_detail_redirect(self, dummy):
-        """Handle redirect after POSTing to base_url for course detail.
+        """Handle redirect after POSTing for course detail in the dashboard.
 
-        Course detail dummy contains every possible value for each field in
-        `specific_fields`. For these fields, the initial params that were posted
-        for course_detail are used to prevent parser error.
+        dummy -- Soupified HTML of initial response after POSTing for course
+                 detail
+
+        Dummy contains a value for every field in `specific_fields`.
+        For these fields, the values that were intially posted to course_detail
+        and stored in self.cache are used to prevent parser error.
         """
         params = {}
         general_fields = [
@@ -291,6 +306,7 @@ class CourseNaviInterface:
         return self._post(self.base_url, params, 'url-encoded')
 
     def _is_valid_date(self, string):
+        """Return True if string is a valid date format. False otherwise."""
         ids = ['月', '火', '水', '木', '金', '土',
                'Mon', 'Tues', 'Wed', 'Thur', 'Fri', 'Sat']
         for id in ids:
@@ -299,10 +315,11 @@ class CourseNaviInterface:
         return False
 
     def _parse_ad_hoc(self, html):
-        """Parse ad hoc fields from html for `self.course_detail()`.
+        """Parse ad hoc fields from HTML for use in `self.course_detail()`.
 
-        Argument
-        --------
+        Return a dictionary mapping each ad hoc field name to the appropriate
+        argument of `post_submit_edit()` shown below.
+
         html -- typically looks like:
                 <p class="w-col1">
                   <span>...</span>
@@ -310,14 +327,30 @@ class CourseNaviInterface:
                     ...
                   </a>
                 </p>
-
-        Purpose of this method is to extract the parameters of the onclick
-        function above.
         """
+        # Returns: "post_submit_edit('foo', 'bar', '', 'baz'); return False;"
         func = html.find('a')['onclick']
-        print(func)
+
+        # Returns: ['foo', 'bar', '', 'baz']
+        args = re.findall("(?<=')([^',]*)(?=')", func)
+
+        fields = {
+            'ControllerParameters': args[0],
+            'hidFolderId': args[1],
+            'hidCommunityId': args[4],
+        }
+
+        return fields
 
     def _find_value_by_name(self, html, name):
+        """Find an HTML element with a given name and return its value.
+
+        Name refers to an HTML tag's <name=""> attribute, while value refers
+        to an HTML tag's <value=""> attribute.
+
+        html -- Soupified HTML
+        name -- queried name value
+        """
         element = html.find(attrs={'name': name})
         if element is None:
             raise NoElementError(f'No element found for "name={name}"')
@@ -346,11 +379,17 @@ class CourseNaviInterface:
                                          headers=self.headers,
                                          verify=self.verify)
         else:
-            raise InvalidContentTypeError(f'Cannot set header to {content_type}')
+            raise InvalidContentTypeError(f'Invalid keyword: {content_type}')
 
         return self._soupify(response.text)
 
     def _soupify(self, html):
+        """Convert a given HTML string to an instance of BeautifulSoup.
+
+        The parser 'html5lib' is used over the built-in 'html.parser' because
+        there were issues where 'html.parser' failed to read certain values in
+        large HTML strings.
+        """
         return BeautifulSoup(html, 'html5lib')
 
 
