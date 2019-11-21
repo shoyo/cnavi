@@ -2,10 +2,10 @@ from api import CourseNaviInterface
 
 
 class TaskManager:
-    def __init__(self):
+    def __init__(self, all=False, verbose=False, debug=False):
         pass
 
-    def pull(self, all=False, verbose=False, debug=False):
+    def pull(self):
         """Pull files from CourseNavi."""
         cni = CourseNaviInterface()
 

@@ -9,9 +9,8 @@ from requests_toolbelt import MultipartEncoder
 
 class CourseNaviInterface:
     def __init__(self):
-        # TODO: retrieve email and password from keyring
-        self.email = os.environ['CNAVI_ID']
-        self.password = os.environ['CNAVI_PASSWORD']
+        self.email = keyring.get_password('cnavi-cli-email', 'cnaviauth')
+        self.password = keyring.get_password('cnavi-cli-password', 'cnaviauth')
         self.base_url = 'https://cnavi.waseda.jp/index.php'
         self.session = requests.Session()
         self.cache = {}

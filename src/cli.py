@@ -26,8 +26,13 @@ def pull(all, verbose, debug):
 @click.option('--password', prompt=True, hide_input=True,
               help='Your CourseNavi password')
 def config(email, password):
-    keyring.set_password('cnavi-cli', email, password)
-    print(f'CourseNavi email and password updated.')
+    try:
+        keyring.set_password('cnavi-cli-email', 'cnaviauth', email)
+        keyring.set_password('cnavi-cli-password', 'cnaviauth', password)
+        print(f'CourseNavi email and password updated.')
+    except keyring.errors.PasswordSetError:
+        print('There was an error setting credentials for your OS backend. ',
+              'Please contact shoyoinokuchi@gmail.com.')
 
 
 if __name__ == '__main__':
