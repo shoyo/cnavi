@@ -15,14 +15,13 @@ class CourseNaviInterface:
         self.session = requests.Session()
         self.cache = {}
 
-        self.verify = True
-#        # --- TEMP for proxying traffic from requests
-#        self.session.proxies = {
-#            'http': 'socks5://localhost:8080',
-#            'https': 'socks5://localhost:8080',
-#        }
-#        self.verify = False
-#        # ----
+        # --- TEMP for proxying traffic from requests
+        self.session.proxies = {
+            'http': 'socks5://localhost:8080',
+            'https': 'socks5://localhost:8080',
+        }
+        self.verify = False
+        # ----
 
         self.headers = {
             'Accept':          'text/html,application/xhtml+xml,'
@@ -46,14 +45,14 @@ class CourseNaviInterface:
         }
     
     def login(self):
-        """Login to the dashboard."""
+        """Login to the dashboard and return the response."""
         dummy = self._login()
         dashboard = self._login_redirect(dummy)
 
         return dashboard
 
     def select_course(self, course, dashboard):
-        """Select a course in the dashboard.
+        """Select a course in the dashboard and return the response.
 
         course    -- Soupified HTML of a single course row
         dashboard -- Soupified HTML of entire dashboard
@@ -66,6 +65,16 @@ class CourseNaviInterface:
         course_detail = self._course_detail_redirect(dummy)
 
         return course_detail
+
+    def select_lecture(self, lecture, course_detail):
+        """Select a lecture and return the response.
+
+        lecture       -- Soupified HTML of a single lecture row
+        course_detail -- Soupified HTML of entire course detail
+        """
+        lecture_detail = self._lecture_detail(lecture, course_detail)
+
+        return lecture_detail
 
     def get_courses(self, dashboard):
         """Return a list of tuples of courses' titles and respective HTML.
@@ -156,7 +165,7 @@ class CourseNaviInterface:
         return self._post(self.base_url, params, 'url-encoded')
 
     def _login_redirect(self, dummy):
-        """Handle redirect after POSTing for login.
+        """Handle redirect after POSTing for login and return response.
 
         dummy -- Soupified HTML of initial response after POSTing for login
         """
@@ -180,7 +189,10 @@ class CourseNaviInterface:
         ]
 
         for field in fields:
-            params[field] = self._find_value_by_name(dummy, field)
+            try:
+                params[field] = self._find_value_by_name(dummy, field)
+            except NoElementError:
+                raise InvalidCredentialsError('Invalid credentials')
 
         return self._post(self.base_url, params, 'url-encoded')
 
@@ -285,7 +297,8 @@ class CourseNaviInterface:
             self.cache[field] = params[field]
 
         # Ad hoc headers
-        ad_hoc_fields = self._parse_ad_hoc(course_data[1])
+        post_submit_edit = course_data[1]
+        ad_hoc_fields = self._parse_post_submit_edit(post_submit_edit)
         params['ControllerParameters'] = ad_hoc_fields['ControllerParameters']
         params['hidFolderId'] = ad_hoc_fields['hidFolderId']
         params['hidCommunityId'] = ad_hoc_fields['hidCommunityId']
@@ -294,14 +307,15 @@ class CourseNaviInterface:
         return self._post(self.base_url, params, 'multipart-form')
 
     def _course_detail_redirect(self, dummy):
-        """Handle redirect after POSTing for course detail in the dashboard.
+        """Handle redirect after POSTing for course detail and return response.
 
         dummy -- Soupified HTML of initial response after POSTing for course
                  detail
 
         Dummy contains a value for every field in `general_fields`.
-        For fields in `specific_fields`, the values that were intially posted to
-        course_detail and stored in self.cache are reused to prevent parser error.
+        For fields in `specific_fields`, the values that were intially posted
+        to course_detail and stored in self.cache are reused to prevent parser
+        error.
         """
         params = {}
         general_fields = [
@@ -333,6 +347,93 @@ class CourseNaviInterface:
 
         return self._post(self.base_url, params, 'url-encoded')
 
+    def _lecture_detail(self, lecture, course_detail):
+        params = {
+            'selMakeCombo': '',
+        }
+        fields = [
+            'hidCurrentViewID',
+            'hidCloseFlg',
+            'hidSessionDelFlg',
+            'hidContactFunTypeCd',
+            'hidContactFolderId',
+            'hidContactCommunityId',
+            'hidContactContentsId',
+            'hidKamokuId',
+            'hidSessionTimeOut',
+            'hidWarningForSessionTimeOut',
+            'hidWarningForSessionTimeOutDispLogin',
+            'xpoint',
+            'ypoint',
+            'tagname',
+            'SessionIdEncodeKey',
+            'hidAdmKey01',
+            'hidAdmKey04',
+            'hidAdmKey05',
+            'hidAdmKey06',
+            'hidAdmKey08',
+            'hidAdmKey90',
+            'hidAdmKey91',
+            'hidFolderId',
+            'hidContentsId',
+            'hidListMode',
+            'hidZX21PageNo',
+            'hidInputFuncType',
+            'hidEditButton',
+            'hidInputMode',
+            'hidSelectList',
+            'hidFileId',
+            'hidCommentDisp',
+            'hidCommunityId',
+            'hidCommKcd',
+            'hidCommBcd',
+            'hidPankuzuFlg',
+            'hidsocial_no',
+            'hidTabId',
+            'hidZX22PageNo',
+            'hidAddation_back',
+            'hidAnimationSign',
+            'hidJudgeFlg',
+            'simpletype',
+            'HID_P3',
+            'HID_P14',
+            'HID_P41',
+            'HID_P42',
+            'HID_P43',
+            'HID_P44',
+            'HID_P45',
+            'hidURL',
+            'hidListToHistory',
+            'hidFlg',
+            'hidUsers',
+            'hidDesignFlg',
+            'hidLanguage',
+            'hidSessionKey',
+            'hidSessionKeyFlg',
+            'hidPankuzuSessionKey',
+            'hidScrollTop',
+            'hidDisplayNone',
+        ]
+
+        for field in fields:
+            params[field] = self._find_value_by_name(course_detail, field)
+
+        # TODO: hidListMode, hidFolderId, hidContents should be present in course_detail but is not
+        # -> results in 500 response
+
+        # Ad hoc headers
+        post_submit = lecture.find(attrs={'class': 'c-read'})
+        ad_hoc_fields = self._parse_post_submit(post_submit)
+        params['ControllerParameters'] = ad_hoc_fields['ControllerParameters']
+        params['hidAdmKey02'] = ad_hoc_fields['hidAdmKey02']
+        params['hidAdmKey03'] = ad_hoc_fields['hidAdmKey03']
+        params['hidAdmKey07'] = ad_hoc_fields['hidAdmKey07']
+        params['hidNewWindowFlg'] = ad_hoc_fields['hidNewWindowFlg']
+        params['hidLectureFlg'] = ad_hoc_fields['hidLectureFlg']
+        params['hidAdmission'] = ad_hoc_fields['hidAdmission']
+
+        return self._post(self.base_url, params, 'multipart-form')
+
     def _is_valid_date(self, string):
         """Return True if string has a valid date format. False otherwise."""
         ids = ['月', '火', '水', '木', '金', '土',
@@ -342,11 +443,12 @@ class CourseNaviInterface:
                 return True
         return False
 
-    def _parse_ad_hoc(self, html):
-        """Parse ad hoc fields from HTML for use in `self.course_detail()`.
+    def _parse_post_submit_edit(self, html):
+        """Parse ad hoc fields from function `post_submit_edit()` in HTML.
 
         Return a dictionary mapping each ad hoc field name to the appropriate
-        argument of `post_submit_edit()` shown below.
+        argument of `post_submit_edit()` shown below. This function should be
+        the onclick function of the first <a> tag in HTML.
 
         html -- typically looks like:
                 <p class="w-col1">
@@ -370,6 +472,38 @@ class CourseNaviInterface:
 
         return fields
 
+    def _parse_post_submit(self, html):
+        """Parse ad hoc fields from function `post_submit()` in HTML.
+
+        Return a dictionary mapping each ad hoc field name to the appropriate
+        argument of `post_submit()` shown below. This function should be the
+        onclcik function of the first <a> tag in HTML.
+
+        html -- typically looks like:
+                <span class="">
+                  <a href="#" onclick="post_submit(...);">
+                    ...
+                  </a>
+                </span>
+        """
+        # Returns: "post_submit('foo', 'bar', '', 'baz'); return False;"
+        func = html.find('a')['onclick']
+
+        # Returns: ['foo', 'bar', '', 'baz']
+        args = re.findall("(?<=')([^',]*)(?=')", func)
+
+        fields = {
+            'ControllerParameters': args[0],
+            'hidAdmKey02': args[1],
+            'hidAdmKey03': args[2],
+            'hidAdmKey07': args[3], # "list" or "detail"
+            'hidNewWindowFlg': args[4], # maybe swap with hidLectureFlg
+            'hidLectureFlg': args[7], # maybe swap with hidNewWindowFlg
+            'hidAdmission': args[9],
+        }
+
+        return fields
+
     def _find_value_by_name(self, html, name):
         """Find an HTML element with a given name and return its value.
 
@@ -382,7 +516,10 @@ class CourseNaviInterface:
         element = html.find(attrs={'name': name})
         if element is None:
             raise NoElementError(f'No element found for "name={name}"')
-        return element['value']
+        try:
+            return element['value']
+        except KeyError:
+            raise NoElementError(f'No value for element with "name={name}"')
 
     def _get(self, url):
         """Make a GET request and return a soupified response."""
@@ -424,6 +561,11 @@ class CourseNaviInterface:
 # ---- Custom Errors ----
 
 class NoCredentialsError(Exception):
+    def __init__(self, message):
+        super().__init__(message)
+
+
+class InvalidCredentialsError(Exception):
     def __init__(self, message):
         super().__init__(message)
 

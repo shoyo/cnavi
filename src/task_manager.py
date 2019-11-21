@@ -1,13 +1,27 @@
-from api import CourseNaviInterface
+from api import (CourseNaviInterface,
+                 InvalidCredentialsError,
+                 NoCredentialsError)
 
 
 class TaskManager:
     def __init__(self, all=False, verbose=False, debug=False):
-        pass
+        self.api = CourseNaviInterface()
 
     def pull(self):
         """Pull files from CourseNavi."""
-        dashboard = self.api.login()
+        try:
+            dashboard = self.api.login()
+        except NoCredentialsError:
+            print("[No credentials] Please set your CourseNavi email and "
+                  + "password with `cnavi config`")
+            return
+        except InvalidCredentialsError:
+            print("[Login error] There was an issue logging in. If you think "
+                  + "this is an application error, please let me know at "
+                  + "shoyoinokuchi@gmail.com. Otherwise, your can reset your "
+                  + "credentials with `cnavi config`.")
+            return
+
         courses = self.api.get_courses(dashboard)
 
         for title, course in courses:
@@ -21,4 +35,10 @@ class TaskManager:
             for title, lecture in lectures:
                 print(f'  > {title}')
 
-                # files = self.api.get_lecture_files(lecture)
+                lecture_detail = self.api.select_lecture(lecture,
+                                                         course_detail)
+#                print(lecture_detail.prettify())
+
+                break
+            break
+
